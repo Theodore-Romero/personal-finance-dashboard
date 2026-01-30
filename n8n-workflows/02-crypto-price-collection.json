@@ -1,0 +1,102 @@
+{
+  "name": "02 - Crypto Price Collection",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 6PM (Every Day)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true",
+        "options": {}
+      },
+      "id": "fetch-coingecko",
+      "name": "Fetch CoinGecko",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cryptoData = $input.first().json;\nconst today = new Date().toISOString().split('T')[0];\n\nconst symbolMap = {\n  'bitcoin': 'BTC',\n  'ethereum': 'ETH',\n  'solana': 'SOL'\n};\n\nconst results = [];\n\nfor (const [coinId, data] of Object.entries(cryptoData)) {\n  results.push({\n    json: {\n      symbol: symbolMap[coinId],\n      price_date: today,\n      price_usd: data.usd,\n      change_24h_pct: data.usd_24h_change || 0,\n      market_cap: data.usd_market_cap || 0,\n      volume_24h: data.usd_24h_vol || 0\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "transform-crypto",
+      "name": "Transform Crypto Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO crypto_prices (asset_id, price_date, price_usd, change_24h_pct, market_cap, volume_24h)\nSELECT a.id, '{{ $json.price_date }}', {{ $json.price_usd }}, {{ $json.change_24h_pct }}, {{ $json.market_cap }}, {{ $json.volume_24h }}\nFROM assets a WHERE a.symbol = '{{ $json.symbol }}'\nON CONFLICT (asset_id, price_date)\nDO UPDATE SET\n  price_usd = EXCLUDED.price_usd,\n  change_24h_pct = EXCLUDED.change_24h_pct,\n  market_cap = EXCLUDED.market_cap,\n  volume_24h = EXCLUDED.volume_24h;",
+        "options": {}
+      },
+      "id": "upsert-crypto",
+      "name": "Upsert Crypto Price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 6PM (Every Day)": {
+      "main": [
+        [
+          {
+            "node": "Fetch CoinGecko",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch CoinGecko": {
+      "main": [
+        [
+          {
+            "node": "Transform Crypto Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Crypto Data": {
+      "main": [
+        [
+          {
+            "node": "Upsert Crypto Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

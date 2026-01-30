@@ -1,0 +1,187 @@
+{
+  "name": "01 - Stock Price Collection",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 6PM ET (Mon-Fri)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id as asset_id, a.symbol FROM assets a JOIN asset_types at ON a.asset_type_id = at.id WHERE at.name IN ('stock', 'etf') AND a.is_active = TRUE;",
+        "options": {}
+      },
+      "id": "get-stock-symbols",
+      "name": "Get Stock Symbols",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-stocks",
+      "name": "Loop Over Stocks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={{ $json.symbol }}&apikey=YOUR_ALPHA_VANTAGE_API_KEY",
+        "options": {}
+      },
+      "id": "fetch-alpha-vantage",
+      "name": "Fetch Alpha Vantage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the API response and asset_id from input\nconst response = $input.first().json;\nconst assetId = $('Loop Over Stocks').first().json.asset_id;\n\n// Check for API error\nif (response['Error Message'] || response['Note']) {\n  return [{ json: { error: response['Error Message'] || response['Note'], asset_id: assetId } }];\n}\n\nconst timeSeries = response['Time Series (Daily)'];\nif (!timeSeries) {\n  return [{ json: { error: 'No time series data', asset_id: assetId } }];\n}\n\n// Get the most recent date\nconst dates = Object.keys(timeSeries).sort().reverse();\nconst latestDate = dates[0];\nconst data = timeSeries[latestDate];\n\nreturn [{\n  json: {\n    asset_id: assetId,\n    price_date: latestDate,\n    open_price: parseFloat(data['1. open']),\n    high_price: parseFloat(data['2. high']),\n    low_price: parseFloat(data['3. low']),\n    close_price: parseFloat(data['4. close']),\n    volume: parseInt(data['5. volume'])\n  }\n}];"
+      },
+      "id": "transform-data",
+      "name": "Transform Price Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO stock_prices (asset_id, price_date, open_price, high_price, low_price, close_price, volume)\nVALUES (\n  '{{ $json.asset_id }}',\n  '{{ $json.price_date }}',\n  {{ $json.open_price }},\n  {{ $json.high_price }},\n  {{ $json.low_price }},\n  {{ $json.close_price }},\n  {{ $json.volume }}\n)\nON CONFLICT (asset_id, price_date) \nDO UPDATE SET\n  close_price = EXCLUDED.close_price,\n  high_price = EXCLUDED.high_price,\n  low_price = EXCLUDED.low_price,\n  volume = EXCLUDED.volume;",
+        "options": {}
+      },
+      "id": "upsert-price",
+      "name": "Upsert Stock Price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1100, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait-rate-limit",
+      "name": "Wait 15s (Rate Limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1320, 0]
+    }
+  ],
+  "connections": {
+    "Daily 6PM ET (Mon-Fri)": {
+      "main": [
+        [
+          {
+            "node": "Get Stock Symbols",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Stock Symbols": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Stocks": {
+      "main": [
+        [
+          {
+            "node": "Fetch Alpha Vantage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch Alpha Vantage": {
+      "main": [
+        [
+          {
+            "node": "Transform Price Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Price Data": {
+      "main": [
+        [
+          {
+            "node": "Upsert Stock Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Stock Price": {
+      "main": [
+        [
+          {
+            "node": "Wait 15s (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s (Rate Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

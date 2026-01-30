@@ -1,0 +1,236 @@
+{
+  "name": "03 - Economic Indicators",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Sunday 9AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.stlouisfed.org/fred/series/observations?series_id=DFF&api_key=YOUR_FRED_API_KEY&file_type=json&limit=1&sort_order=desc",
+        "options": {}
+      },
+      "id": "fetch-fed-rate",
+      "name": "Fetch Fed Funds Rate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, -100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&api_key=YOUR_FRED_API_KEY&file_type=json&limit=1&sort_order=desc",
+        "options": {}
+      },
+      "id": "fetch-cpi",
+      "name": "Fetch CPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.stlouisfed.org/fred/series/observations?series_id=UNRATE&api_key=YOUR_FRED_API_KEY&file_type=json&limit=1&sort_order=desc",
+        "options": {}
+      },
+      "id": "fetch-unemployment",
+      "name": "Fetch Unemployment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const obs = $input.first().json.observations[0];\nreturn [{\n  json: {\n    indicator_name: 'Federal Funds Rate',\n    indicator_code: 'DFF',\n    observation_date: obs.date,\n    value: parseFloat(obs.value),\n    unit: 'percent'\n  }\n}];"
+      },
+      "id": "transform-fed",
+      "name": "Transform Fed Rate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const obs = $input.first().json.observations[0];\nreturn [{\n  json: {\n    indicator_name: 'Consumer Price Index',\n    indicator_code: 'CPIAUCSL',\n    observation_date: obs.date,\n    value: parseFloat(obs.value),\n    unit: 'index'\n  }\n}];"
+      },
+      "id": "transform-cpi",
+      "name": "Transform CPI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const obs = $input.first().json.observations[0];\nreturn [{\n  json: {\n    indicator_name: 'Unemployment Rate',\n    indicator_code: 'UNRATE',\n    observation_date: obs.date,\n    value: parseFloat(obs.value),\n    unit: 'percent'\n  }\n}];"
+      },
+      "id": "transform-unemployment",
+      "name": "Transform Unemployment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO economic_indicators (indicator_name, indicator_code, observation_date, value, unit)\nVALUES ('{{ $json.indicator_name }}', '{{ $json.indicator_code }}', '{{ $json.observation_date }}', {{ $json.value }}, '{{ $json.unit }}')\nON CONFLICT (indicator_code, observation_date)\nDO UPDATE SET value = EXCLUDED.value;",
+        "options": {}
+      },
+      "id": "upsert-fed",
+      "name": "Upsert Fed Rate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, -100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO economic_indicators (indicator_name, indicator_code, observation_date, value, unit)\nVALUES ('{{ $json.indicator_name }}', '{{ $json.indicator_code }}', '{{ $json.observation_date }}', {{ $json.value }}, '{{ $json.unit }}')\nON CONFLICT (indicator_code, observation_date)\nDO UPDATE SET value = EXCLUDED.value;",
+        "options": {}
+      },
+      "id": "upsert-cpi",
+      "name": "Upsert CPI",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, 100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO economic_indicators (indicator_name, indicator_code, observation_date, value, unit)\nVALUES ('{{ $json.indicator_name }}', '{{ $json.indicator_code }}', '{{ $json.observation_date }}', {{ $json.value }}, '{{ $json.unit }}')\nON CONFLICT (indicator_code, observation_date)\nDO UPDATE SET value = EXCLUDED.value;",
+        "options": {}
+      },
+      "id": "upsert-unemployment",
+      "name": "Upsert Unemployment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Sunday 9AM": {
+      "main": [
+        [
+          {
+            "node": "Fetch Fed Funds Rate",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch CPI",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Unemployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Fed Funds Rate": {
+      "main": [
+        [
+          {
+            "node": "Transform Fed Rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch CPI": {
+      "main": [
+        [
+          {
+            "node": "Transform CPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Unemployment": {
+      "main": [
+        [
+          {
+            "node": "Transform Unemployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Fed Rate": {
+      "main": [
+        [
+          {
+            "node": "Upsert Fed Rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform CPI": {
+      "main": [
+        [
+          {
+            "node": "Upsert CPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Unemployment": {
+      "main": [
+        [
+          {
+            "node": "Upsert Unemployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

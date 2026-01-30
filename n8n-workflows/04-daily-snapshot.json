@@ -1,0 +1,162 @@
+{
+  "name": "04 - Daily Portfolio Snapshot",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 6:30PM (After Prices)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_record_daily_snapshot();",
+        "options": {}
+      },
+      "id": "record-snapshot",
+      "name": "Record Daily Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM fn_check_daily_alert();",
+        "options": {}
+      },
+      "id": "check-alert",
+      "name": "Check for Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [440, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.alert_level }}",
+              "rightValue": "NORMAL",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-significant",
+      "name": "If Significant Change",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst direction = data.day_change >= 0 ? 'gained' : 'lost';\nconst emoji = data.day_change >= 0 ? '📈' : '📉';\n\nreturn [{\n  json: {\n    subject: `${emoji} Portfolio Alert: ${data.alert_level} Change`,\n    message: `Your portfolio ${direction} $${Math.abs(data.day_change).toFixed(2)} (${data.day_change_pct}%) today.\\n\\nCurrent Value: $${data.total_value.toFixed(2)}\\nAlert Level: ${data.alert_level}`,\n    alert_level: data.alert_level,\n    day_change: data.day_change,\n    day_change_pct: data.day_change_pct,\n    total_value: data.total_value\n  }\n}];"
+      },
+      "id": "format-alert",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {},
+      "id": "no-action",
+      "name": "No Action Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 100]
+    }
+  ],
+  "connections": {
+    "Daily 6:30PM (After Prices)": {
+      "main": [
+        [
+          {
+            "node": "Record Daily Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Daily Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Check for Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Alerts": {
+      "main": [
+        [
+          {
+            "node": "If Significant Change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Significant Change": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Action Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
